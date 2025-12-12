@@ -400,9 +400,39 @@ static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 
 static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
 
-	// Step 1: Call get_node_by_path() to get inode from path
+	// find the corresponding inode to the input directory path
+	struct inode dir_inode;
+	if(get_node_by_path(path, 0, &dir_inode)) return -ENOENT;
 
-	// Step 2: Read directory entries from its data blocks, and copy them to filler
+	// read directory entries from the inode-pointed data blocks, and copy them to filler
+	char block[BLOCK_SIZE];
+	for(int i = 0; i < 16; i++) {
+		if(dir_inode.direct_ptr[i] == 0) break;
+
+		bio_read(dir_inode.direct_ptr[i], block);
+		struct dirent* dirents = (struct dirent*)block;
+
+		int max_dirents = BLOCK_SIZE / sizeof(struct dirent);
+		for(int j = 0; j < max_dirents; j++) {
+			if(dirents[j].valid == 1) {
+
+		/*
+		https://libfuse.github.io/doxygen/fuse_8h.html
+		fuse_fill_dir_t: Function to add an entry in a readdir() operation
+
+		parameters:
+			buf	the buffer passed to the readdir() operation
+			name	the file name of the directory entry
+			stbuf	file attributes, can be NULL
+			off	offset of the next entry or zero
+
+		CITATION: lookup the parameter values of stbuf and off below.
+		*/
+
+				filler(buffer, dirents[j].name, NULL, 0);
+			}
+		}
+	}
 
 	return 0;
 }
