@@ -305,9 +305,15 @@ int rufs_mkfs() {
 		.link = 2,		//link count: . and .. 
 		.direct_ptr[0] = dblk_start
 	};
+
 	
 	time(&root_inode.vstat.st_mtime);	// last modified timestamp
 	time(&root_inode.vstat.st_atime);	// last accessed timestamp
+	root_inode.vstat.st_uid = getuid();
+	root_inode.vstat.st_gid = getgid();
+	root_inode.vstat.st_mode = S_IFDIR | 0755; // see pg.11 (faq) of project spec
+	root_inode.vstat.st_nlink = 2;
+
 	bio_write(itbl_start, &root_inode);	
 
 	// creating the two default entries for the root directory
@@ -334,7 +340,7 @@ int rufs_mkfs() {
  * FUSE file operations
  */
 static void *rufs_init(struct fuse_conn_info *conn) {
-	if(dev_open(diskfile_path) < 0) rufs_mkfs();
+	if(dev_open(diskfile_path) < 0) rufs_mkfs();;
 
 	sb  = malloc(sizeof(struct superblock));
 	bio_read(0, sb);
@@ -361,14 +367,23 @@ static void rufs_destroy(void *userdata) {
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
+	
+	// find the corresponding inode 
+	struct inode target;
+	int ret = get_node_by_path(path, 0, &target);
+	if(ret < 0) return -ENOENT;
 
-	// Step 1: call get_node_by_path() to get inode from path
 
-	// Step 2: fill attribute of file into stbuf from inode
-
-	stbuf->st_mode   = S_IFDIR | 0755;
-	stbuf->st_nlink  = 2;
-	time(&stbuf->st_mtime);
+	// populate stbuf with the requisite fields:
+	// from pg.4, 10 of project spec: st_uid, st_gid, st_nlink, st_size, st_mtime, st_atime , and st_mode
+	
+	stbuf->st_size   = target.size;
+	stbuf->st_uid    = target.vstat.st_uid;
+	stbuf->st_gid    = target.vstat.st_gid;
+	stbuf->st_nlink  = target.vstat.st_nlink;
+	stbuf->st_mtime  = target.vstat.st_mtime;
+	stbuf->st_atime  = target.vstat.st_atime;
+	stbuf->st_mode   = target.vstat.st_mode;
 
 	return 0;
 }
