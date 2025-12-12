@@ -554,20 +554,48 @@ static int rufs_open(const char *path, struct fuse_file_info *fi) {
 }
 
 static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
+	// get inode from path
+	struct inode file_inode;
+	if(get_node_by_path(path, 0, &file_inode) < 0) return -ENOENT;
+	if(offset > file_inode.size) return 0;
 
-	// Step 1: You could call get_node_by_path() to get inode from path
+	// gracefully truncate read unto the end of the file
+	if(offset + size > file_inode.size) {
+		size = file_inode.size - offset;
+	}
+		
+	// based on size and offset, read its data blocks from disk
+	int start_blk_no  = offset / BLOCK_SIZE;
+	int start_blk_off = offset % BLOCK_SIZE;
+	
+	// copy the correct amount of data from offset to buffer
+	int bytes_read = 0;
+	char blk_buffer[BLOCK_SIZE];
+	while(bytes_read < size) {
+		bio_read(file_inode.direct_ptr[start_blk_no], blk_buffer);
 
-	// Step 2: Based on size and offset, read its data blocks from disk
+		// only read upto the required size or end-of-block in a single iteration
+		int rem_chunk = BLOCK_SIZE - start_blk_off;
+		int rem_unread = size - bytes_read;
+		int chunk = (rem_unread < rem_chunk) ? rem_unread : rem_chunk;
+		
+		// copy chunk of data from into output buffer
+		memcpy(buffer + bytes_read, blk_buffer + start_blk_off, chunk);
+		bytes_read += chunk;
 
-	// Step 3: copy the correct amount of data from offset to buffer
+		// increment-and-check to ensure loop remains within max direct pointers
+		if(++start_blk_no >= 16) return -1;
 
-	// Note: this function should return the amount of bytes you copied to buffer
-	return 0;
+		// after the initial offset, always start reading from top of block
+		start_blk_off = 0;
+	}
+		
+	return bytes_read;
 }
 
 static int rufs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-
 	// Step 1: You could call get_node_by_path() to get inode from path
+	
 
 	// Step 2: Based on size and offset, read its data blocks from disk
 
