@@ -268,7 +268,7 @@ int rufs_mkfs() {
 	uint32_t itbl_start = dbm_start  + ((MAX_DNUM + (8 * BLOCK_SIZE) - 1) / (8 * BLOCK_SIZE));
 	uint32_t dblk_start = itbl_start + ((MAX_INUM * (sizeof(struct inode)) + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-	sb = {
+	struct superblock sb_loc = {
 		.magic_num    = MAGIC_NUM,
 		.max_inum     = MAX_INUM,
 		.max_dnum     = MAX_DNUM,
@@ -277,7 +277,7 @@ int rufs_mkfs() {
 		.i_start_blk  = itbl_start,
 		.d_start_blk  = dblk_start		
 	};
-	bio_write(0, &sb);
+	bio_write(0, &sb_loc);
 
 	// initialize inode bitmap
 	ibm = malloc((MAX_INUM + 7) / 8);
