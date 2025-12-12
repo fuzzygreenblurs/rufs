@@ -33,36 +33,48 @@ bitmap_t dbm;
  * Get available inode number from bitmap
  */
 int get_avail_ino() {
+	// search in-mem inode bmap for free inode
+	int free_inode = -1;
+	for(int i = 0; i < MAX_INUM; i++) {
+		if(get_bitmap(ibm, i) == 0) {
+			free_inode = i;
+			break;
+		}
+	}
+	if(free_inode == -1) return -1;
 
-	// Step 1: Read inode bitmap from disk
-	
-	// Step 2: Traverse inode bitmap to find an available slot
-	// Step 3: Update inode bitmap and write to disk 
-
-	return 0;
+	// update inode bitmap and write to disk 
+	set_bitmap(ibm, free_inode);
+	bio_write(sb->i_bitmap_blk, ibm);
+	return free_inode;
 }
 
 /* 
  * Get available data block number from bitmap
  */
 int get_avail_blkno() {
+	// search in-mem data block bmap for free inode
+	int free_dblock = -1;
+	for(int i = 0; i < MAX_DNUM; i++) {
+		if(get_bitmap(dbm, i) == 0) {
+			free_dblock = i;
+			break;
+		}
+	}
+	if(free_dblock == -1) return -1;
 
-	// Step 1: Read data block bitmap from disk
-	
-	// Step 2: Traverse data block bitmap to find an available slot
-
-	// Step 3: Update data block bitmap and write to disk 
-
-	return 0;
+	// update inode bitmap and write to disk 
+	set_bitmap(dbm, free_dblock);
+	bio_write(sb->d_bitmap_blk, dbm);
+	return free_dblock;
 }
 
 /* 
  * inode operations
  */
 int readi(uint16_t ino, struct inode *inode) {
-
 	// Step 1: Get the inode's on-disk block number
-
+	
 	// Step 2: Get offset of the inode in the inode on-disk block
 
 	// Step 3: Read the block from disk and then copy into inode structure
