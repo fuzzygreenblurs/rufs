@@ -218,10 +218,39 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
  * namei operation
  */
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
+	// given a filepath as a string, return the corresponding inode (if valid filepath)	
 	
-	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
-	// Note: You could either implement it in a iterative way or recursive way
+	// if input path is root, return the root inode directly
+	if(strcmp(path, "/") == 0) { 
+		readi(0, inode);
+		return 0;
+	}
 
+	// otherwise, begin from the specified inode
+	struct inode current;
+	readi(ino, &current);
+
+	// use strtok (string-to_token) to parse the path using the "/" as a delimiter
+	// ref: https://man7.org/linux/man-pages/man3/strtok.3p.html
+	char mut_path[strlen(path) + 1];
+	// otherwise, begin from the specified inode;
+	strcpy(mut_path, path);
+	char* token = strtok(mut_path, "/");
+
+	// scan for terminal entry: use direct loops over recursion to improve space complexity 
+	while(token) {
+		struct dirent entry;
+	
+		// look up the token against all the current inode's directory entries
+		if(dir_find(current.ino, token, strlen(token), &entry) < 0) return -1;
+		
+		// if a corresponding directory entry is found, begin looking in its subdirectories
+		readi(entry.ino, &current);
+		token = strtok(NULL, "/");
+		
+	}
+
+	memcpy(inode, &current, sizeof(struct inode));
 	return 0;
 }
 
