@@ -144,7 +144,7 @@ int rufs_mkfs() {
 		.i_bitmap_blk = ibm_start,
 		.d_bitmap_blk = dbm_start,	
 		.i_start_blk  = itbl_start,
-		.d_start_blk  = dtbl_start		
+		.d_start_blk  = dblk_start		
 	};
 	bio_write(0, &sb);
 
