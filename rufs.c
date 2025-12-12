@@ -371,11 +371,13 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 	// find the corresponding inode 
 	struct inode target;
 	int ret = get_node_by_path(path, 0, &target);
+	
+	// ref: pg10 of project spec about how to use ENOENT for the desired error
 	if(ret < 0) return -ENOENT;
 
 
 	// populate stbuf with the requisite fields:
-	// from pg.4, 10 of project spec: st_uid, st_gid, st_nlink, st_size, st_mtime, st_atime , and st_mode
+	// ref: pg.4, 10 of project spec: st_uid, st_gid, st_nlink, st_size, st_mtime, st_atime , and st_mode
 	
 	stbuf->st_size   = target.size;
 	stbuf->st_uid    = target.vstat.st_uid;
@@ -389,11 +391,10 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 }
 
 static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
+	// check if a path is valid
 
-	// Step 1: Call get_node_by_path() to get inode from path
-
-	// Step 2: If not find, return -1
-
+	struct inode dir_inode;
+	if(get_node_by_path(path, 0, &dir_inode) < 0) return -ENOENT;
 	return 0;
 }
 
