@@ -439,18 +439,66 @@ static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, 
 
 
 static int rufs_mkdir(const char *path, mode_t mode) {
+	
+	// dirname and basename mutate their inputs. use copies of the input path
+	char parent_cpy[strlen(path) + 1];
+	char target_cpy[strlen(path) + 1];
+	strcpy(parent_cpy, path);
+	strcpy(target_cpy, path);
 
-	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
+	// use dirname() and basename() to separate parent directory path and target directory name
+	char* parent_path = dirname(parent_cpy);
+	char* target_path = basename(target_cpy); 
 
-	// Step 2: Call get_node_by_path() to get inode of parent directory
+	// get inode of parent directory
+	struct inode parent_inode;
+	if(get_node_by_path(parent_path, 0, &parent_inode) < 0) return -ENOENT;
 
-	// Step 3: Call get_avail_ino() to get an available inode number
+	// create inode for the new directory 
+	int new_ino = get_avail_ino();
+	int new_blkno = get_avail_blkno();
 
-	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
+	struct inode new_dir = {0};
+	new_dir.ino = new_ino;
+	new_dir.direct_ptr[0] = new_blkno;
+	new_dir.valid = 1;
+	new_dir.type = S_IFDIR;
+	new_dir.link = 2;
+	new_dir.size = 2 * sizeof(struct dirent);
 
-	// Step 5: Update inode for target directory
+	new_dir.vstat.st_mode = S_IFDIR | 0755;
+	new_dir.vstat.st_nlink = 2;
+	new_dir.vstat.st_uid = getuid();
+	new_dir.vstat.st_gid = getgid();
+	time(&new_dir.vstat.st_mtime);
+	time(&new_dir.vstat.st_atime);
 
-	// Step 6: Call writei() to write inode to disk
+	// add it as a direntry to the parent inode
+	// note: target_path is just referring to the target directory name below
+	dir_add(parent_inode, new_ino, target_path, strlen(target_path));
+
+
+	// create the two default entries for the new directory and persist
+	struct dirent root_entries[2];
+	memset(root_entries, 0, sizeof(root_entries));
+
+	// "." should point to current dir
+	root_entries[0].ino = new_ino;
+	root_entries[0].valid = 1;
+	strcpy(root_entries[0].name, ".");
+	root_entries[0].len = 1;
+
+	// ".." should point to parent dir 
+	root_entries[1].ino = parent_inode.ino;
+	root_entries[1].valid = 1;
+	strcpy(root_entries[1].name, "..");
+	root_entries[1].len = 2;
+
+	// persist direntries into top of data block for the new directory
+	bio_write(new_blkno, root_entries);
+
+	//persist new inode in inode table 
+	writei(new_ino, &new_dir);
 	
 	return 0;
 }
