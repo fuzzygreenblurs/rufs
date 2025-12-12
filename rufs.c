@@ -135,7 +135,8 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 			if(dirents[j].valid == 0) continue;
 
 			// if there is a match, copy into the desired dirent in-mem buffer
-			if(strcmp(dirents[j].name, fname) == 0) {
+			if(dirents[j].len == name_len &&
+			   strncmp(dirents[j].name, fname, name_len) == 0) {
 				memcpy(dirent, &dirents[j], sizeof(struct dirent));
 				return 0;
 			}
