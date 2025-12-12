@@ -66,7 +66,7 @@ int get_avail_blkno() {
 	// update inode bitmap and write to disk 
 	set_bitmap(dbm, free_dblock);
 	bio_write(sb->d_bitmap_blk, dbm);
-	return free_dblock;
+	return sb->d_start_blk + free_dblock;
 }
 
 /* 
@@ -147,18 +147,68 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
+	char buffer[BLOCK_SIZE]; 
+	uint32_t num_dirents = BLOCK_SIZE / sizeof(struct dirent);
 
-	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
+	// loop through each of its data blocks to find an empty dirent slot
+	for(int i = 0; i < 16; i++) {
+		if(dir_inode.direct_ptr[i] == 0) break;	
+
+		// copy the data block into an in-mem buffer 
+		bio_read(dir_inode.direct_ptr[i], buffer);
+		
+		// search for a free slot in the block
+		struct dirent* dirents = (struct dirent*)buffer;
+		for(uint32_t j = 0; j < num_dirents; j++) {
+			if(dirents[j].valid == 0) {
+				// update existing invalid direntry in in-mem block buffer
+				dirents[j].ino = f_ino;
+				dirents[j].valid = 1;
+				strncpy(dirents[j].name, fname, name_len);
+				dirents[j].name[name_len] = '\0';
+				dirents[j].len = name_len;
+
+				// note: buffer is cast as pointer when passed to fn 
+				bio_write(dir_inode.direct_ptr[i], buffer);
+				
+				// update inode disk record with new size 
+				dir_inode.size += sizeof(struct dirent);
+				writei(dir_inode.ino, &dir_inode);
+				
+				return 0;
+			}
+		}
+	}
+
+	// at this point, no free block found: allocate new block
+	int dblk = get_avail_blkno();
+	int slot_available = 0;
+	for(int k = 0; k < 16; k++) {
+		if(dir_inode.direct_ptr[k] == 0) {
+			dir_inode.direct_ptr[k] = dblk;	
+			slot_available = 1;
+			break;
+		}
+	}
 	
-	// Step 2: Check if fname (directory name) is already used in other entries
+	// small file assumption: if the inode direct pointer list is full, error out
+	if(!slot_available) return -1;
 
-	// Step 3: Add directory entry in dir_inode's data block and write to disk
+	// create new direntry in the data block
+	memset(buffer, 0, BLOCK_SIZE);
+	struct dirent* dirents = (struct dirent*)buffer;
 
-	// Allocate a new data block for this directory if it does not exist
+	dirents[0].ino = f_ino;
+	dirents[0].valid = 1;
+	strncpy(dirents[0].name, fname, name_len);
+	dirents[0].name[name_len] = '\0';
+	dirents[0].len = name_len;
 
-	// Update directory inode
-
-	// Write directory entry
+	bio_write(dblk, buffer);
+	
+	// update parent inode with new size
+	dir_inode.size += sizeof(struct dirent);
+	writei(dir_inode.ino, &dir_inode);
 
 	return 0;
 }
