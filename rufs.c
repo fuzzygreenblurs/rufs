@@ -108,15 +108,41 @@ int writei(uint16_t ino, struct inode *inode) {
  * directory operations
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
+	// note: dir_find only looks up immediate subdirectories of a parent directory
+	// recursive look ups are not handled here
 
-	// Step 1: Call readi() to get the inode using ino (inode number of current directory)
+	struct inode dir_inode;
+	char buffer[BLOCK_SIZE]; 
+	uint32_t num_dirents = BLOCK_SIZE / sizeof(struct dirent);
 
-	// Step 2: Get data block of current directory from inode
+	// given a target dir (by inode number), read it from disk into memory
+	readi(ino, &dir_inode);
 
-	// Step 3: Read directory's data block and check each directory entry.
-	// If the name matches, then copy directory entry to dirent structure
+	// loop through each of its direct pointers
+	// each direct pointer points to a correponding data block
+	for(int i = 0; i < 16; i++) {
+		if(dir_inode.direct_ptr[i] == 0) break;
 
-	return 0;
+		// copy the data block into an in-mem buffer 
+		bio_read(dir_inode.direct_ptr[i], buffer);
+
+		// parse through the buffer in dirent sized units
+		// this allows to index into the buffer using pointer arithmetic
+		struct dirent* dirents = (struct dirent*)buffer;
+	
+		// perform the lookup against each of valid directory entry for that block 
+		for(uint32_t j = 0; j < num_dirents; j++) {
+			if(dirents[j].valid == 0) continue;
+
+			// if there is a match, copy into the desired dirent in-mem buffer
+			if(strcmp(dirents[j].name, fname) == 0) {
+				memcpy(dirent, &dirents[j], sizeof(struct dirent));
+				return 0;
+			}
+		}
+	}
+
+	return -1;
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
