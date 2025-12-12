@@ -73,22 +73,32 @@ int get_avail_blkno() {
  * inode operations
  */
 int readi(uint16_t ino, struct inode *inode) {
-	// Step 1: Get the inode's on-disk block number
+	// find the parent inode table block and its offset within that block
+	uint32_t blk_idx = sb->i_start_blk + ((ino * sizeof(struct inode)) / BLOCK_SIZE);
+	uint32_t offset = (ino * sizeof(struct inode)) % BLOCK_SIZE;
 	
-	// Step 2: Get offset of the inode in the inode on-disk block
-
-	// Step 3: Read the block from disk and then copy into inode structure
+	// disk can only be read from in block-sized chunks
+	// the specific inode within that block must then be copied into the target struct
+	char buffer[BLOCK_SIZE];
+	bio_read(blk_idx, buffer);
+	memcpy(inode, buffer + offset, sizeof(struct inode));
 
 	return 0;
 }
 
 int writei(uint16_t ino, struct inode *inode) {
-
-	// Step 1: Get the block number where this inode resides on disk
+	// find the parent inode table block and its offset within that block
+	uint32_t blk_idx = sb->i_start_blk + ((ino * sizeof(struct inode)) / BLOCK_SIZE);
+	uint32_t offset = (ino * sizeof(struct inode)) % BLOCK_SIZE;
 	
-	// Step 2: Get the offset in the block where this inode resides on disk
+	// disk can only be written to in block-sized chunks
+	// the target inode is updated in memory and then the whole block is updated on disk  
+	// opposite buffer copy direction compared to readi
+	char buffer[BLOCK_SIZE];
+	bio_read(blk_idx, buffer);
+	memcpy(buffer + offset, inode, sizeof(struct inode));
 
-	// Step 3: Write inode to disk 
+	bio_write(blk_idx, buffer);
 
 	return 0;
 }
