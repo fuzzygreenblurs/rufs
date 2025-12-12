@@ -504,27 +504,51 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 }
 
 static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
+	// dirname and basename mutate their inputs. use copies of the input path
+	char parent_cpy[strlen(path) + 1];
+	char target_cpy[strlen(path) + 1];
+	strcpy(parent_cpy, path);
+	strcpy(target_cpy, path);
 
-	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
+	// use dirname() and basename() to separate parent directory path and target directory name
+	char* parent_path = dirname(parent_cpy);
+	char* target_path = basename(target_cpy); 
 
-	// Step 2: Call get_node_by_path() to get inode of parent directory
+	// get inode of parent directory
+	struct inode parent_inode;
+	if(get_node_by_path(parent_path, 0, &parent_inode) < 0) return -ENOENT;
 
-	// Step 3: Call get_avail_ino() to get an available inode number
+	// create inode for the new file 
+	int new_ino = get_avail_ino();
 
-	// Step 4: Call dir_add() to add directory entry of target file to parent directory
+	struct inode new_file = {0};
+	new_file.ino = new_ino;
+	new_file.valid = 1;
+	new_file.type = S_IFREG;
+	new_file.link = 1;
+	new_file.size = 0;
 
-	// Step 5: Update inode for target file
+	new_file.vstat.st_mode = S_IFREG | 0644;
+	new_file.vstat.st_nlink = 1;
+	new_file.vstat.st_uid = getuid();
+	new_file.vstat.st_gid = getgid();
+	time(&new_file.vstat.st_mtime);
+	time(&new_file.vstat.st_atime);
+		
+	// add it as a direntry to the parent inode
+	// note: target_path is just referring to the target directory name below
+	dir_add(parent_inode, new_ino, target_path, strlen(target_path));
 
-	// Step 6: Call writei() to write inode to disk
-
+	// write inode to disk
+	writei(new_ino, &new_file);
 	return 0;
 }
 
 static int rufs_open(const char *path, struct fuse_file_info *fi) {
-
-	// Step 1: Call get_node_by_path() to get inode from path
-
-	// Step 2: If not find, return -1
+	
+	// get inode from path
+	struct inode file_inode;
+	if(get_node_by_path(path, 0, &file_inode) < 0) return -ENOENT;
 
 	return 0;
 }
