@@ -23,6 +23,9 @@
 #include "rufs.h"
 
 char diskfile_path[PATH_MAX];
+struct superblock* sb;
+bitmap_t ibm;
+bitmap_t dbm;
 
 // Declare your in-memory data structures here
 // BLOCK_SIZE
@@ -34,7 +37,7 @@ int get_avail_ino() {
 	// Step 1: Read inode bitmap from disk
 	
 	// Step 2: Traverse inode bitmap to find an available slot
-// Step 3: Update inode bitmap and write to disk 
+	// Step 3: Update inode bitmap and write to disk 
 
 	return 0;
 }
@@ -137,7 +140,7 @@ int rufs_mkfs() {
 	uint32_t itbl_start = dbm_start  + ((MAX_DNUM + (8 * BLOCK_SIZE) - 1) / (8 * BLOCK_SIZE));
 	uint32_t dblk_start = itbl_start + ((MAX_INUM * (sizeof(struct inode)) + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-	struct superblock sb = {
+	sb = {
 		.magic_num    = MAGIC_NUM,
 		.max_inum     = MAX_INUM,
 		.max_dnum     = MAX_DNUM,
@@ -149,12 +152,12 @@ int rufs_mkfs() {
 	bio_write(0, &sb);
 
 	// initialize inode bitmap
-	bitmap_t ibm = malloc((MAX_INUM + 7) / 8);
+	ibm = malloc((MAX_INUM + 7) / 8);
 	memset(ibm, 0, ((MAX_INUM + 7) / 8));
 	bio_write(ibm_start, ibm);
 
 	// initialize data block bitmap
-	bitmap_t dbm = malloc((MAX_DNUM + 7) / 8);
+	dbm = malloc((MAX_DNUM + 7) / 8);
 	memset(dbm, 0, (MAX_DNUM + 7) / 8);
 	bio_write(dbm_start, dbm);
 	
@@ -195,7 +198,6 @@ int rufs_mkfs() {
 
 	bio_write(dblk_start, root_entries);
 
-
 	return 0;
 }
 
@@ -204,21 +206,30 @@ int rufs_mkfs() {
  * FUSE file operations
  */
 static void *rufs_init(struct fuse_conn_info *conn) {
+	if(dev_open(diskfile_path) < 0) rufs_mkfs();
 
-	// Step 1a: If disk file is not found, call mkfs
+	sb  = malloc(sizeof(struct superblock));
+	bio_read(0, sb);
+	if(sb->magic_num != MAGIC_NUM) {
+		rufs_mkfs();
+		dev_open(diskfile_path);
+		bio_read(0, sb);
+	}
 
-	// Step 1b: If disk file is found, just initialize in-memory data structures
-	// and read superblock from disk
+	ibm = malloc((MAX_INUM + 7) / 8);
+	dbm = malloc((MAX_DNUM + 7) / 8);
+	bio_read(sb->i_bitmap_blk, ibm);
+	bio_read(sb->d_bitmap_blk, dbm);
 
 	return NULL;
 }
 
 static void rufs_destroy(void *userdata) {
+	free(sb);
+	free(ibm);
+	free(dbm);
 
-	// Step 1: De-allocate in-memory data structures
-
-	// Step 2: Close diskfile
-
+	dev_close();
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
