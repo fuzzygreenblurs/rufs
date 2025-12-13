@@ -594,16 +594,50 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 }
 
 static int rufs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-	// Step 1: You could call get_node_by_path() to get inode from path
+	// get inode from path
+	struct inode file_inode;
+	if(get_node_by_path(path, 0, &file_inode) < 0) return -ENOENT;
+
+	// determine starting location (block number and offset in block)
+	int start_blk_no  = offset / BLOCK_SIZE;
+	int start_blk_off = offset % BLOCK_SIZE;
+
 	
+	// copy the correct amount of data from offset to buffer
+	int bytes_written = 0;
+	char blk_buffer[BLOCK_SIZE];
+	while(bytes_written < size) {
+		if(file_inode.direct_ptr[start_blk_no] == 0) {
+			file_inode.direct_ptr[start_blk_no] = get_avail_blkno();
+			memset(blk_buffer, 0, BLOCK_SIZE);
+		} else {
+			bio_read(file_inode.direct_ptr[start_blk_no], blk_buffer);
+		}
 
-	// Step 2: Based on size and offset, read its data blocks from disk
+		// only read upto the required size or end-of-block in a single iteration
+		int rem_chunk = BLOCK_SIZE - start_blk_off;
+		int rem_to_write = size - bytes_written;
+		int chunk = (rem_to_write < rem_chunk) ? rem_to_write : rem_chunk;
 
-	// Step 3: Write the correct amount of data from offset to disk
+		// persist to file
+		memcpy(blk_buffer + start_blk_off, buffer + bytes_written, chunk);
+		bio_write(file_inode.direct_ptr[start_blk_no], blk_buffer); 
 
-	// Step 4: Update the inode info and write it to disk
+		// increment for next copy operation. check file block limits are not excceeded.
+		// begin writing into all subsequent blocks from the start of the block 
+		bytes_written += chunk;
+		if(++start_blk_no >= 16) return -1;	
+		start_blk_off = 0;
+	}
 
-	// Note: this function should return the amount of bytes you write to disk
+
+	// only update file size if writing/overwriting past current size boundary
+	if(offset + size > file_inode.size) {
+		file_inode.size = offset + size;
+	}
+	
+	writei(file_inode.ino, &file_inode);
+
 	return size;
 }
 
