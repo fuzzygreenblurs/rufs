@@ -45,7 +45,10 @@ int get_avail_ino() {
 
 	// update inode bitmap and write to disk 
 	set_bitmap(ibm, free_inode);
-	bio_write(sb->i_bitmap_blk, ibm);
+	char buffer[BLOCK_SIZE];
+	memset(buffer, 0, BLOCK_SIZE);
+	memcpy(buffer, ibm, (MAX_INUM + 7) / 8);
+	bio_write(sb->i_bitmap_blk, buffer);
 	return free_inode;
 }
 
@@ -65,7 +68,10 @@ int get_avail_blkno() {
 
 	// update inode bitmap and write to disk 
 	set_bitmap(dbm, free_dblock);
-	bio_write(sb->d_bitmap_blk, dbm);
+	char buffer[BLOCK_SIZE];
+	memset(buffer, 0, BLOCK_SIZE);
+	memcpy(buffer, dbm, (MAX_DNUM + 7) / 8);
+	bio_write(sb->d_bitmap_blk, buffer);
 	return sb->d_start_blk + free_dblock;
 }
 
@@ -259,7 +265,7 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
  */
 int rufs_mkfs() {
 
-	// call dev_init() to initialize (Create) Diskfile
+	// call dev_init() to initialize (create) DISKFILE
 	dev_init(diskfile_path);
 	
 	// write superblock information
@@ -277,24 +283,33 @@ int rufs_mkfs() {
 		.i_start_blk  = itbl_start,
 		.d_start_blk  = dblk_start		
 	};
-	bio_write(0, &sb_loc);
+
+	char sb_buffer[BLOCK_SIZE];
+	memset(sb_buffer, 0, BLOCK_SIZE);
+	memcpy(sb_buffer, &sb_loc, sizeof(struct superblock)); 
+	bio_write(0, sb_buffer);
 
 	// initialize inode bitmap
-	ibm = malloc((MAX_INUM + 7) / 8);
-	memset(ibm, 0, ((MAX_INUM + 7) / 8));
-	bio_write(ibm_start, ibm);
+	bitmap_t ibm_local = malloc((MAX_INUM + 7) / 8);
+	memset(ibm_local, 0, ((MAX_INUM + 7) / 8));
 
 	// initialize data block bitmap
-	dbm = malloc((MAX_DNUM + 7) / 8);
-	memset(dbm, 0, (MAX_DNUM + 7) / 8);
-	bio_write(dbm_start, dbm);
+	bitmap_t dbm_local = malloc((MAX_DNUM + 7) / 8);
+	memset(dbm_local, 0, (MAX_DNUM + 7) / 8);
 	
 	// update bitmap information for root directory
-	set_bitmap(ibm, 0);
-	bio_write(ibm_start, ibm);
+	set_bitmap(ibm_local, 0);
+	set_bitmap(dbm_local, 0);
 
-	set_bitmap(dbm, 0);
-	bio_write(dbm_start, dbm);
+	// write bitmaps to disk
+	char bm_buffer[BLOCK_SIZE];
+	memset(bm_buffer, 0, BLOCK_SIZE);
+	memcpy(bm_buffer, ibm_local, (MAX_INUM + 7) / 8);
+	bio_write(ibm_start, bm_buffer);
+
+	memset(bm_buffer, 0, BLOCK_SIZE);
+	memcpy(bm_buffer, dbm_local, (MAX_DNUM + 7) / 8);
+	bio_write(dbm_start, bm_buffer);
 
 	// update inode for root directory
 	struct inode root_inode = {
@@ -313,8 +328,11 @@ int rufs_mkfs() {
 	root_inode.vstat.st_gid = getgid();
 	root_inode.vstat.st_mode = S_IFDIR | 0755; // see pg.11 (faq) of project spec
 	root_inode.vstat.st_nlink = 2;
-
-	bio_write(itbl_start, &root_inode);	
+	
+	char inode_buffer[BLOCK_SIZE];
+	memset(inode_buffer, 0, BLOCK_SIZE);
+	memcpy(inode_buffer, &root_inode, sizeof(struct inode));
+	bio_write(itbl_start, inode_buffer);	
 
 	// creating the two default entries for the root directory
 	struct dirent root_entries[2];
@@ -330,7 +348,13 @@ int rufs_mkfs() {
 	strcpy(root_entries[1].name, "..");
 	root_entries[1].len = 2;
 
-	bio_write(dblk_start, root_entries);
+	char dirent_buffer[BLOCK_SIZE]; 
+	memset(dirent_buffer, 0, BLOCK_SIZE);
+	memcpy(dirent_buffer, root_entries, sizeof(root_entries));
+	bio_write(dblk_start, dirent_buffer);
+
+	free(ibm_local);
+	free(dbm_local);
 
 	return 0;
 }
@@ -340,20 +364,32 @@ int rufs_mkfs() {
  * FUSE file operations
  */
 static void *rufs_init(struct fuse_conn_info *conn) {
-	if(dev_open(diskfile_path) < 0) rufs_mkfs();;
+	if(dev_open(diskfile_path) < 0) {
+		rufs_mkfs();
+		dev_open(diskfile_path);
+	}
 
-	sb  = malloc(sizeof(struct superblock));
-	bio_read(0, sb);
+	char sb_buffer[BLOCK_SIZE];
+	bio_read(0, sb_buffer);
+	sb = malloc(sizeof(struct superblock));
+	memcpy(sb, sb_buffer, sizeof(struct superblock));
+
 	if(sb->magic_num != MAGIC_NUM) {
 		rufs_mkfs();
 		dev_open(diskfile_path);
-		bio_read(0, sb);
+		bio_read(0, sb_buffer);
+		memcpy(sb, sb_buffer, sizeof(struct superblock));
 	}
 
+	char ibm_buffer[BLOCK_SIZE];
+	char dbm_buffer[BLOCK_SIZE];
+	bio_read(sb->i_bitmap_blk, ibm_buffer);
+	bio_read(sb->d_bitmap_blk, dbm_buffer);
+	
 	ibm = malloc((MAX_INUM + 7) / 8);
 	dbm = malloc((MAX_DNUM + 7) / 8);
-	bio_read(sb->i_bitmap_blk, ibm);
-	bio_read(sb->d_bitmap_blk, dbm);
+	memcpy(ibm, ibm_buffer, (MAX_INUM + 7) / 8);
+	memcpy(dbm, dbm_buffer, (MAX_DNUM + 7) / 8);
 
 	return NULL;
 }
@@ -584,7 +620,8 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 		bytes_read += chunk;
 
 		// increment-and-check to ensure loop remains within max direct pointers
-		if(++start_blk_no >= 16) return -1;
+		start_blk_no++;
+		if(start_blk_no >= 16 && bytes_read < size) return -1;
 
 		// after the initial offset, always start reading from top of block
 		start_blk_off = 0;
@@ -626,7 +663,9 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 		// increment for next copy operation. check file block limits are not excceeded.
 		// begin writing into all subsequent blocks from the start of the block 
 		bytes_written += chunk;
-		if(++start_blk_no >= 16) return -1;	
+
+		start_blk_no++;
+		if(start_blk_no >= 16 && bytes_written < size) return -1;	
 		start_blk_off = 0;
 	}
 
@@ -725,4 +764,3 @@ int main(int argc, char *argv[]) {
 
 	return fuse_stat;
 }
-
