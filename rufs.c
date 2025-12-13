@@ -313,19 +313,19 @@ int rufs_mkfs() {
 
 	// update inode for root directory
 	struct inode root_inode = {
-		.ino   = 0,		// inode number
-		.valid = 1,		
-		.size  = 2 * sizeof(struct dirent),
-		.type  = S_IFDIR,	// is directory type
-		.link = 2,		//link count: . and .. 
-		.direct_ptr[0] = dblk_start
+		.ino   = 0,		                        // inode number
+		.valid = 1,	                          // in-use on bitmap	
+		.size  = 2 * sizeof(struct dirent),   // 2 direntries 
+		.type  = S_IFDIR,	                    // is directory type
+		.link = 2,		                        // link count: . and .. 
+		.direct_ptr[0] = dblk_start           // points to the start of data blocks
 	};
 
 	
 	time(&root_inode.vstat.st_mtime);	// last modified timestamp
 	time(&root_inode.vstat.st_atime);	// last accessed timestamp
-	root_inode.vstat.st_uid = getuid();
-	root_inode.vstat.st_gid = getgid();
+	root_inode.vstat.st_uid = getuid(); // https://man7.org/linux/man-pages/man2/geteuid.2.html
+	root_inode.vstat.st_gid = getgid(); // https://man7.org/linux/man-pages/man2/getgid.2.html
 	root_inode.vstat.st_mode = S_IFDIR | 0755; // see pg.11 (faq) of project spec
 	root_inode.vstat.st_nlink = 2;
 	
@@ -364,16 +364,20 @@ int rufs_mkfs() {
  * FUSE file operations
  */
 static void *rufs_init(struct fuse_conn_info *conn) {
+
+  // ensure the DISKFILE and file system have been created
 	if(dev_open(diskfile_path) < 0) {
 		rufs_mkfs();
 		dev_open(diskfile_path);
 	}
 
+  // read the superblock from disk into a local buffer
 	char sb_buffer[BLOCK_SIZE];
 	bio_read(0, sb_buffer);
 	sb = malloc(sizeof(struct superblock));
 	memcpy(sb, sb_buffer, sizeof(struct superblock));
 
+  // ensure the superblock was initialized correctly or try again
 	if(sb->magic_num != MAGIC_NUM) {
 		rufs_mkfs();
 		dev_open(diskfile_path);
@@ -381,11 +385,13 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 		memcpy(sb, sb_buffer, sizeof(struct superblock));
 	}
 
+  // read the bitmaps from disk into memory buffers 
 	char ibm_buffer[BLOCK_SIZE];
 	char dbm_buffer[BLOCK_SIZE];
 	bio_read(sb->i_bitmap_blk, ibm_buffer);
 	bio_read(sb->d_bitmap_blk, dbm_buffer);
-	
+
+  // strip these buffers down to compact bitmap sized chunks 
 	ibm = malloc((MAX_INUM + 7) / 8);
 	dbm = malloc((MAX_DNUM + 7) / 8);
 	memcpy(ibm, ibm_buffer, (MAX_INUM + 7) / 8);
@@ -457,10 +463,10 @@ static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, 
 		fuse_fill_dir_t: Function to add an entry in a readdir() operation
 
 		parameters:
-			buf	the buffer passed to the readdir() operation
-			name	the file name of the directory entry
-			stbuf	file attributes, can be NULL
-			off	offset of the next entry or zero
+      buf:	the buffer passed to the readdir() operation
+      name:	the file name of the directory entry
+      stbuf:	file attributes, can be NULL
+      off:	offset of the next entry or zero
 
 		CITATION: lookup the parameter values of stbuf and off below.
 		*/
